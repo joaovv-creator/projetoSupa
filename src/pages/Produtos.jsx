@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
-import { supabase } from '../lib/supabase'; 
+import { supabase } from '../lib/supabase';
+// NOVA IMPORTAÇÃO: O construtor dos avisos e o componente que mostra eles na tela
+import toast, { Toaster } from 'react-hot-toast'; 
 
 export default function Produtos() {
-  // Estados da Tabela
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState(null);
 
-  // Estados do Modal de Novo Produto
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [produtoEditandoId, setProdutoEditandoId] = useState(null);
+  
   const [novoProduto, setNovoProduto] = useState({
     nome: '',
     categoria: '',
@@ -35,52 +37,106 @@ export default function Produtos() {
     } catch (error) {
       console.error("Erro ao buscar produtos:", error.message);
       setErro("Não foi possível carregar a lista de produtos.");
+      toast.error("Erro ao carregar produtos do banco de dados."); // Usando Toast de erro!
     } finally {
       setLoading(false);
     }
   };
 
-  // Função para salvar o produto no banco de dados
+  const handleAbrirModalNovo = () => {
+    setProdutoEditandoId(null);
+    setNovoProduto({ nome: '', categoria: '', preco: '', estoque: '' });
+    setIsModalOpen(true);
+  };
+
+  const handleAbrirModalEditar = (produto) => {
+    setProdutoEditandoId(produto.id);
+    setNovoProduto({
+      nome: produto.nome,
+      categoria: produto.categoria,
+      preco: produto.preco,
+      estoque: produto.estoque
+    });
+    setIsModalOpen(true);
+  };
+
   const handleSalvarProduto = async (e) => {
-    e.preventDefault(); // Evita que a página recarregue ao enviar o formulário
+    e.preventDefault();
     setSalvando(true);
 
     try {
-      // Mandando os dados para o Supabase
-      const { error } = await supabase.from('produtos').insert([
-        {
-          nome: novoProduto.nome,
-          categoria: novoProduto.categoria,
-          preco: parseFloat(novoProduto.preco), // Garante que preço é número com vírgula (decimal)
-          estoque: parseInt(novoProduto.estoque, 10) // Garante que estoque é número inteiro
-        }
-      ]);
+      const dadosParaSalvar = {
+        nome: novoProduto.nome,
+        categoria: novoProduto.categoria,
+        preco: parseFloat(novoProduto.preco),
+        estoque: parseInt(novoProduto.estoque, 10)
+      };
 
-      if (error) throw error;
+      if (produtoEditandoId) {
+        const { error } = await supabase
+          .from('produtos')
+          .update(dadosParaSalvar)
+          .eq('id', produtoEditandoId);
 
-      // Se deu certo: fecha o modal, limpa o formulário e recarrega a tabela!
+        if (error) throw error;
+        // TOAST DE SUCESSO AO ATUALIZAR
+        toast.success('Produto atualizado com sucesso!'); 
+      } else {
+        const { error } = await supabase
+          .from('produtos')
+          .insert([dadosParaSalvar]);
+
+        if (error) throw error;
+        // TOAST DE SUCESSO AO CRIAR
+        toast.success('Novo produto cadastrado!'); 
+      }
+
       setIsModalOpen(false);
-      setNovoProduto({ nome: '', categoria: '', preco: '', estoque: '' });
       buscarProdutos();
 
     } catch (error) {
       console.error("Erro ao salvar produto:", error.message);
-      alert("Erro ao salvar o produto. Verifique o console.");
+      // TOAST DE ERRO
+      toast.error("Ocorreu um erro ao salvar o produto."); 
     } finally {
       setSalvando(false);
+    }
+  };
+
+  const handleExcluirProduto = async (id) => {
+    const confirmacao = window.confirm("Tem certeza que deseja excluir este produto?");
+    if (!confirmacao) return;
+
+    try {
+      const { error } = await supabase
+        .from('produtos')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      // TOAST DE SUCESSO AO EXCLUIR
+      toast.success('Produto excluído permanentemente!');
+      buscarProdutos();
+
+    } catch (error) {
+      console.error("Erro ao excluir produto:", error.message);
+      toast.error("Erro ao tentar excluir o produto.");
     }
   };
 
   return (
     <div className="flex bg-gray-50 min-h-screen w-full relative">
       <Sidebar />
+      
+      {/* ADICIONAMOS O TOASTER AQUI PARA ELE PODER APARECER NA TELA */}
+      <Toaster position="top-right" reverseOrder={false} />
 
       <main className="flex-1 p-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-gray-800">Gerenciar Produtos</h1>
-          {/* Agora o botão abre o Modal! */}
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={handleAbrirModalNovo}
             className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-sm transition duration-200"
           >
             + Novo Produto
@@ -124,6 +180,7 @@ export default function Produtos() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{produto.nome}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{produto.categoria}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
+                      {/* Voltei a moeda para R$ (Reais) aqui! */}
                       {Number(produto.preco).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -132,8 +189,8 @@ export default function Produtos() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button className="text-blue-600 hover:text-blue-900 mr-4 transition">Editar</button>
-                      <button className="text-red-600 hover:text-red-900 transition">Excluir</button>
+                      <button onClick={() => handleAbrirModalEditar(produto)} className="text-blue-600 hover:text-blue-900 mr-4 transition">Editar</button>
+                      <button onClick={() => handleExcluirProduto(produto.id)} className="text-red-600 hover:text-red-900 transition">Excluir</button>
                     </td>
                   </tr>
                 ))
@@ -143,78 +200,37 @@ export default function Produtos() {
         </div>
       </main>
 
-      {/* ========================================================= */}
-      {/* MODAL DE NOVO PRODUTO (Só aparece se isModalOpen for true)*/}
-      {/* ========================================================= */}
+      {/* Modal Reutilizável (Continua Igual) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
           <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Cadastrar Produto</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">
+              {produtoEditandoId ? 'Editar Produto' : 'Cadastrar Produto'}
+            </h2>
             
             <form onSubmit={handleSalvarProduto} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Produto</label>
-                <input 
-                  type="text" 
-                  required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={novoProduto.nome}
-                  onChange={(e) => setNovoProduto({...novoProduto, nome: e.target.value})}
-                />
+                <input type="text" required className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={novoProduto.nome} onChange={(e) => setNovoProduto({...novoProduto, nome: e.target.value})} />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-                <input 
-                  type="text" 
-                  required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={novoProduto.categoria}
-                  onChange={(e) => setNovoProduto({...novoProduto, categoria: e.target.value})}
-                />
+                <input type="text" required className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={novoProduto.categoria} onChange={(e) => setNovoProduto({...novoProduto, categoria: e.target.value})} />
               </div>
-
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$)</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    min="0"
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={novoProduto.preco}
-                    onChange={(e) => setNovoProduto({...novoProduto, preco: e.target.value})}
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Preço</label>
+                  <input type="number" step="0.01" min="0" required className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={novoProduto.preco} onChange={(e) => setNovoProduto({...novoProduto, preco: e.target.value})} />
                 </div>
-
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Estoque</label>
-                  <input 
-                    type="number" 
-                    min="0"
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={novoProduto.estoque}
-                    onChange={(e) => setNovoProduto({...novoProduto, estoque: e.target.value})}
-                  />
+                  <input type="number" min="0" required className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={novoProduto.estoque} onChange={(e) => setNovoProduto({...novoProduto, estoque: e.target.value})} />
                 </div>
               </div>
-
               <div className="flex justify-end gap-3 mt-8">
-                <button 
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit"
-                  disabled={salvando}
-                  className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition"
-                >
-                  {salvando ? 'Salvando...' : 'Salvar Produto'}
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition">Cancelar</button>
+                <button type="submit" disabled={salvando} className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition">
+                  {salvando ? 'Salvando...' : (produtoEditandoId ? 'Atualizar Produto' : 'Salvar Produto')}
                 </button>
               </div>
             </form>
