@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import { supabase } from '../lib/supabase';
-// NOVA IMPORTAÇÃO: O construtor dos avisos e o componente que mostra eles na tela
-import toast, { Toaster } from 'react-hot-toast'; 
+import toast, { Toaster } from 'react-hot-toast';
+// NOVA IMPORTAÇÃO DO SWEETALERT2
+import Swal from 'sweetalert2';
 
 export default function Produtos() {
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState(null);
 
+  // Estado da Barra de Pesquisa
+  const [termoBusca, setTermoBusca] = useState('');
+
+  // Estados do Modal e Formulário
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [produtoEditandoId, setProdutoEditandoId] = useState(null);
@@ -37,7 +42,7 @@ export default function Produtos() {
     } catch (error) {
       console.error("Erro ao buscar produtos:", error.message);
       setErro("Não foi possível carregar a lista de produtos.");
-      toast.error("Erro ao carregar produtos do banco de dados."); // Usando Toast de erro!
+      toast.error("Erro ao carregar produtos.");
     } finally {
       setLoading(false);
     }
@@ -73,21 +78,21 @@ export default function Produtos() {
       };
 
       if (produtoEditandoId) {
+        // Editando produto existente
         const { error } = await supabase
           .from('produtos')
           .update(dadosParaSalvar)
           .eq('id', produtoEditandoId);
 
         if (error) throw error;
-        // TOAST DE SUCESSO AO ATUALIZAR
         toast.success('Produto atualizado com sucesso!'); 
       } else {
+        // Criando novo produto
         const { error } = await supabase
           .from('produtos')
           .insert([dadosParaSalvar]);
 
         if (error) throw error;
-        // TOAST DE SUCESSO AO CRIAR
         toast.success('Novo produto cadastrado!'); 
       }
 
@@ -96,40 +101,53 @@ export default function Produtos() {
 
     } catch (error) {
       console.error("Erro ao salvar produto:", error.message);
-      // TOAST DE ERRO
       toast.error("Ocorreu um erro ao salvar o produto."); 
     } finally {
       setSalvando(false);
     }
   };
 
-  const handleExcluirProduto = async (id) => {
-    const confirmacao = window.confirm("Tem certeza que deseja excluir este produto?");
-    if (!confirmacao) return;
+  // === EXCLUIR COM SWEETALERT2 ===
+  const handleExcluirProduto = (id) => {
+    Swal.fire({
+      title: 'Tem certeza?',
+      text: "Você não poderá desfazer essa ação!",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33', // Vermelho para dar atenção
+      cancelButtonColor: '#3085d6', // Azul para cancelar
+      confirmButtonText: 'Sim, excluir!',
+      cancelButtonText: 'Cancelar'
+    }).then(async (result) => {
+      // Só entra aqui se o usuário clicou no botão "Sim, excluir!"
+      if (result.isConfirmed) {
+        try {
+          const { error } = await supabase
+            .from('produtos')
+            .delete()
+            .eq('id', id);
 
-    try {
-      const { error } = await supabase
-        .from('produtos')
-        .delete()
-        .eq('id', id);
+          if (error) throw error;
+          
+          toast.success('Produto excluído com sucesso!');
+          buscarProdutos();
 
-      if (error) throw error;
-      
-      // TOAST DE SUCESSO AO EXCLUIR
-      toast.success('Produto excluído permanentemente!');
-      buscarProdutos();
-
-    } catch (error) {
-      console.error("Erro ao excluir produto:", error.message);
-      toast.error("Erro ao tentar excluir o produto.");
-    }
+        } catch (error) {
+          console.error("Erro ao excluir produto:", error.message);
+          toast.error("Erro ao tentar excluir o produto.");
+        }
+      }
+    });
   };
+
+  // Filtragem da Barra de Pesquisa
+  const produtosFiltrados = produtos.filter((produto) =>
+    produto.nome.toLowerCase().includes(termoBusca.toLowerCase())
+  );
 
   return (
     <div className="flex bg-gray-50 min-h-screen w-full relative">
       <Sidebar />
-      
-      {/* ADICIONAMOS O TOASTER AQUI PARA ELE PODER APARECER NA TELA */}
       <Toaster position="top-right" reverseOrder={false} />
 
       <main className="flex-1 p-8">
@@ -149,6 +167,23 @@ export default function Produtos() {
           </div>
         )}
 
+        {/* Barra de Pesquisa */}
+        <div className="mb-6 flex">
+          <div className="relative w-full max-w-md">
+            <input
+              type="text"
+              placeholder="Pesquisar produto pelo nome..."
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={termoBusca}
+              onChange={(e) => setTermoBusca(e.target.value)}
+            />
+            <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+          </div>
+        </div>
+
+        {/* Tabela de Produtos */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
@@ -168,19 +203,18 @@ export default function Produtos() {
                     Carregando produtos...
                   </td>
                 </tr>
-              ) : produtos.length === 0 ? (
+              ) : produtosFiltrados.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
-                    Nenhum produto cadastrado no momento.
+                    {termoBusca ? "Nenhum produto encontrado com esse nome." : "Nenhum produto cadastrado no momento."}
                   </td>
                 </tr>
               ) : (
-                produtos.map((produto) => (
+                produtosFiltrados.map((produto) => (
                   <tr key={produto.id} className="hover:bg-gray-50 transition duration-150">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{produto.nome}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{produto.categoria}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
-                      {/* Voltei a moeda para R$ (Reais) aqui! */}
                       {Number(produto.preco).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -200,7 +234,7 @@ export default function Produtos() {
         </div>
       </main>
 
-      {/* Modal Reutilizável (Continua Igual) */}
+      {/* Modal Reutilizável de Produto */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
           <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
@@ -219,7 +253,7 @@ export default function Produtos() {
               </div>
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Preço</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$)</label>
                   <input type="number" step="0.01" min="0" required className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={novoProduto.preco} onChange={(e) => setNovoProduto({...novoProduto, preco: e.target.value})} />
                 </div>
                 <div className="flex-1">
